@@ -491,6 +491,35 @@ def export_index(cfg, out_path, verbose=False):
             "size": os.path.getsize(out_path)}
 
 
+def export_task(config_path, out_path, app_dir):
+    """Xuat file tra cho tac vu chay ngam. Tra ve 0 neu xong, 1 neu loi.
+
+    Khong dinh gi toi giao dien: tac vu chay luc 1 gio sang, khong co ai ngoi
+    truoc may de bam OK, va cung khong nen phu thuoc tkinter.
+    """
+    import traceback
+    try:
+        cfg = load_config(config_path)
+        info = export_index(cfg, out_path)
+        dong = ("%s | %d dong | %d co duong dan | %.2f MB | %s\n"
+                % (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                   info["rows"], info["with_path"],
+                   info["size"] / 1024.0 / 1024.0, out_path))
+        ma = 0
+    except Exception:
+        dong = ("%s | LOI\n%s\n"
+                % (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                   traceback.format_exc()))
+        ma = 1
+    try:
+        with open(os.path.join(app_dir, "cap_nhat.log"), "a",
+                  encoding="utf-8") as f:
+            f.write(dong)
+    except Exception:
+        pass
+    return ma
+
+
 def resolve_file(record, fields, storage, cfg):
     """Tu 1 dong log -> tim file thuc te tren dia. Tra (path, ly_do)."""
     by_base = {}

@@ -1,8 +1,8 @@
 {
-  "version": "1.0.3",
+  "version": "1.0.4",
   "files": {
-    "vidtool.py": "73bfa375eab88f4af04a1b835ab497b07ef2490c7200ed54c5a3b3b7d3f89d82",
-    "vidtool_gui.py": "e8e1536c3c526ac7a2a9b3b99f1a8bad3d12eb27a26c92b4da54f7ddc38e5b73",
+    "vidtool.py": "404ad268f3a6b37da94e191a8dab5d33b820e385a601836dbd49daf3b1ed1569",
+    "vidtool_gui.py": "e3529482cbdcf445f358d45fd27efd638b352d7077fa64022a0ee816e4c206bc",
     "updater.py": "2ae5c514c0221af194e462c36a279dcc8d5f69835e13cd1a46c621f82461f828"
   }
 }

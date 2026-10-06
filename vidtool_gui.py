@@ -769,11 +769,19 @@ class App(tk.Tk):
 
     # -- setup lan dau ------------------------------------------------------
     def _paths_alive(self, cfg):
-        """Config co tro toi cho nao co that khong."""
+        """Config co tro toi cho nao CO THAT khong.
+
+        Phai kiem tra ton tai that su, khong duoc chi xem danh sach co rong hay
+        khong: duong dan khong co ky tu dai dien thi expand_paths tra lai y
+        nguyen, nen config mac dinh "./logs" van cho ra danh sach khac rong du
+        tren may chang co thu muc do - the la may la khong bao gio duoc hoi
+        chon thu muc goc.
+        """
         try:
-            return bool(vidtool.expand_paths(cfg.get("log_paths") or []))
+            found = vidtool.expand_paths(cfg.get("log_paths") or [])
         except Exception:
             return False
+        return any(os.path.exists(p) for p in found)
 
     def first_run_setup(self, force=False):
         """Hoi thu muc goc roi tu sinh duong dan - de app chay duoc tren may la.

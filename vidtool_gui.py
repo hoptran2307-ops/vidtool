@@ -739,6 +739,9 @@ class App(tk.Tk):
         self.btn_flow.pack(side="left", padx=6)
         tk.Button(bar, text="Mo ket qua", width=12, height=2, relief="groove",
                   command=self.open_out).pack(side="right")
+        tk.Button(bar, text="XUAT FILE TRA", bg="#d9f2d9", width=14, height=2,
+                  relief="groove", font=("Segoe UI", 9, "bold"),
+                  command=self.do_export_index).pack(side="left", padx=6)
         tk.Button(bar, text="Luu cau hinh", width=12, height=2, relief="groove",
                   command=self.save_config).pack(side="right", padx=6)
         tk.Button(bar, text="Chon lai thu muc", width=15, height=2, relief="groove",
@@ -842,21 +845,51 @@ class App(tk.Tk):
 
     # -- danh sach video tra duoc -------------------------------------------
     def show_hits(self, cands):
-        """Do ket qua tra vao bang. Goi tu luong nen -> phai day qua main loop."""
-        rows = [(c["delta_sec"] / 60.0, c["path"]) for c in cands if c.get("path")]
+        """Do ket qua tra vao bang. Goi tu luong nen -> phai day qua main loop.
+
+        Ca ung vien khong co file tren may nay cung phai hien: may o xa chi can
+        biet do la video nao, duong dan ghi trong log van dang gia.
+        """
+        rows = []
+        for c in cands:
+            tho = str(c.get("file_log") or c.get("path") or "")
+            if not tho:
+                continue
+            ten = os.path.basename(tho)
+            if c.get("path"):
+                noi, co_file = c["path"], True
+            elif "\\" in tho or "/" in tho:
+                # file tra ghi ca duong dan tren may nguoi gui
+                noi, co_file = "[tren may nguoi gui] " + tho, False
+            else:
+                noi, co_file = "(chi biet ten, khong ro nam o dau)", False
+            rows.append((c["delta_sec"] / 60.0, ten, noi, co_file))
         self.after(0, lambda: self._fill_hits(rows))
 
     def _fill_hits(self, rows):
         self.tree.delete(*self.tree.get_children())
         self._hits = {}
-        for lech, path in rows:
-            iid = self.tree.insert("", "end", values=("%.2f" % lech,
-                                                      os.path.basename(path), path))
-            self._hits[iid] = path
+        for lech, ten, noi, co_file in rows:
+            iid = self.tree.insert("", "end",
+                                   values=("%.2f" % lech, ten, noi),
+                                   tags=() if co_file else ("xa",))
+            self._hits[iid] = noi if co_file else None
+        self.tree.tag_configure("xa", foreground="#888888")
 
     def _selected_hit(self):
         sel = self.tree.selection() or ()
-        return self._hits.get(sel[0]) if sel else None
+        if not sel:
+            return None
+        p = self._hits.get(sel[0])
+        if p is None:
+            ten = self.tree.item(sel[0], "values")[1]
+            messagebox.showinfo(
+                "Khong co tren may nay",
+                "Video '%s' khong nam tren may nay.\n\n"
+                "Ban dang o che do chi tra: biet duoc do la video nao, nhung "
+                "file goc van nam tren may nguoi gui." % ten)
+            return None
+        return p
 
     def _open_hit(self, _evt=None):
         p = self._selected_hit()
@@ -1291,26 +1324,23 @@ class App(tk.Tk):
         if not t:
             raise SystemExit("Chua nhap gio dang video.")
 
-        # Chan tu dau khi duong dan chi dung tren giay. Khong chan thi nguoi dung
-        # chi nhan duoc "Khong co ung vien nao" - doc xong van khong biet la do
-        # nhap sai gio hay do chua tro dung thu muc.
+        # Khong co log thi chiu, nhung khong co video thi van tra duoc: log da ghi
+        # san ten video. Day la che do cho may o xa, chi can biet do la video nao.
         logs = [p for p in vidtool.expand_paths(cfg.get("log_paths") or [])
                 if os.path.exists(p)]
         vids = [p for p in vidtool.expand_paths(cfg.get("storage_dirs") or [])
                 if os.path.exists(p)]
-        if not logs or not vids:
-            thieu = []
-            if not logs:
-                thieu.append("thu muc log")
-            if not vids:
-                thieu.append("thu muc video")
+        if not logs:
             raise SystemExit(
-                "Khong tim thay %s tren may nay.\n"
-                "   Duong dan dang dung: log=%s | video=%s\n"
-                "   -> Bam nut 'Chon lai thu muc' (goc duoi ben phai) roi chon "
-                "thu muc cha chua video va log."
-                % (" va ".join(thieu),
-                   cfg.get("log_paths"), cfg.get("storage_dirs")))
+                "Khong tim thay file log nao tren may nay.\n"
+                "   Duong dan dang dung: %s\n"
+                "   -> Neu ban o xa: bam 'Them file log...' roi chon file tra "
+                "(vidtool_index.csv) ma nguoi gui dua cho.\n"
+                "   -> Neu ban co san du lieu: bam 'Chon lai thu muc'."
+                % (cfg.get("log_paths"),))
+        if not vids:
+            print("[che do chi tra] Khong co thu muc video tren may nay, "
+                  "chi tra ten video tu log - khong cat duoc anh.")
 
         qdt, cands, _ = vidtool.find_candidates(t, cfg, verbose=verbose)
         vidtool._print_candidates(qdt, cands, 20)
@@ -1334,6 +1364,28 @@ class App(tk.Tk):
                 vidtool._print_analysis(res)
                 self.last_outdir, self.last_html = res["outdir"], res["html"]
         self._start(job, "Dang tra + phan tich...")
+
+    def do_export_index(self):
+        """Gop log thanh 1 file CSV nho de gui cho may khac tra cuu tu xa."""
+        out = filedialog.asksaveasfilename(
+            title="Luu file tra de gui cho may khac",
+            defaultextension=".csv", initialfile="vidtool_index.csv",
+            filetypes=[("File tra (CSV)", "*.csv"), ("Tat ca", "*.*")])
+        if not out:
+            return
+
+        def job(cfg):
+            print("Dang gop log... (vai chuc giay)")
+            info = vidtool.export_index(cfg, out, verbose=True)
+            print("=" * 70)
+            print("Da xuat: %s" % info["path"])
+            print("  so dong         : %d" % info["rows"])
+            print("  co duong dan file: %d" % info["with_path"])
+            print("  dung luong      : %.2f MB" % (info["size"] / 1024.0 / 1024.0))
+            print()
+            print("Gui file nay cho nguoi kia. Tren may ho, bam 'Them file log...'")
+            print("roi chon file nay - ho se tra duoc video ma khong can co video.")
+        self._start(job, "Dang xuat file tra...", need_storage=False)
 
     def do_analyze_file(self):
         files = filedialog.askopenfilenames(

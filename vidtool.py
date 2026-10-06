@@ -415,6 +415,82 @@ def index_storage(cfg):
     return out
 
 
+def export_index(cfg, out_path, verbose=False):
+    """Gop toan bo log thanh 1 file CSV nho de gui cho may khac tra cuu.
+
+    Chi can log la du biet video nao dang luc nao - log da ghi san ten file.
+    Nho vay gui vai MB thay vi hang tram GB video. Duong dan thuc tren may chu
+    duoc do lai tu kho video, de nguoi nhan biet file nam o dau neu ho co the
+    vao duoc may nay qua mang.
+    """
+    records = read_log_records(cfg, verbose=verbose)
+    storage = index_storage(cfg)
+    if verbose:
+        print("  [export] %d ban ghi log, %d file video" % (len(records), len(storage)),
+              file=sys.stderr)
+
+    fm = cfg["field_map"]
+    cache = {}
+
+    def fields_for(rec):
+        sig = tuple(sorted(str(k) for k in rec.keys()))
+        if sig not in cache:
+            keys = set(sig)
+            cache[sig] = {
+                "time": detect_field(keys, TIME_KEYS, fm.get("time")),
+                "file": detect_field(keys, FILE_KEYS, fm.get("file")),
+                "id": detect_field(keys, ID_KEYS, fm.get("id")),
+                "url": detect_field(keys, URL_KEYS, fm.get("url")),
+                "title": detect_field(keys, TITLE_KEYS, fm.get("title")),
+            }
+        return cache[sig]
+
+    # Dung bang tra ten -> duong dan MOT LAN. Goi resolve_file cho tung ban ghi
+    # la 47k x 2.5k phep so khop, chay ca tieng dong ho.
+    by_name = {}
+    for s in storage:
+        by_name.setdefault(os.path.normcase(os.path.basename(s["path"])), s["path"])
+
+    tz = get_tz(cfg["timezone"])
+    rows, seen = [], set()
+    for r in records:
+        f = fields_for(r)
+        if not f["time"] or not f["file"]:
+            continue
+        dt = parse_time(r.get(f["time"]), tz)
+        name = r.get(f["file"])
+        if dt is None or not name:
+            continue
+        key = (dt.isoformat(), str(name))
+        if key in seen:
+            continue
+        seen.add(key)
+        base = os.path.basename(str(name))
+        path = by_name.get(os.path.normcase(base))
+        if not path and os.path.isabs(str(name)) and os.path.exists(str(name)):
+            path = str(name)
+        rows.append({
+            "post_time": dt.strftime("%Y-%m-%d %H:%M:%S"),
+            # ghi ca duong dan day du khi biet: cot nay la cot tool doc, nho vay
+            # may nhan vua ra ten video vua biet no nam o dau tren may gui
+            "local_file": path or os.path.basename(str(name)),
+            "duong_dan_may_chu": path or "",
+            "kenh": r.get("channel") or "",
+            "nguon_log": os.path.basename(r.get("__source_log") or ""),
+        })
+
+    rows.sort(key=lambda d: d["post_time"])
+    cols = ["post_time", "local_file", "duong_dan_may_chu", "kenh", "nguon_log"]
+    with open(out_path, "w", encoding="utf-8-sig", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=cols)
+        w.writeheader()
+        w.writerows(rows)
+
+    co_duong_dan = sum(1 for d in rows if d["duong_dan_may_chu"])
+    return {"rows": len(rows), "with_path": co_duong_dan, "path": out_path,
+            "size": os.path.getsize(out_path)}
+
+
 def resolve_file(record, fields, storage, cfg):
     """Tu 1 dong log -> tim file thuc te tren dia. Tra (path, ly_do)."""
     by_base = {}
@@ -509,6 +585,9 @@ def find_candidates(query_time, cfg, verbose=False):
             path, why = resolve_file(r, f, storage, cfg)
             cands.append({
                 "delta_sec": delta, "dt": dt, "path": path, "why": why,
+                # ten/duong dan ghi trong log, giu lai de may khong co san video
+                # van biet do la video nao (che do chi tra)
+                "file_log": r.get(f["file"]) if f["file"] else None,
                 "id": r.get(f["id"]) if f["id"] else None,
                 "url": r.get(f["url"]) if f["url"] else None,
                 "title": r.get(f["title"]) if f["title"] else None,
@@ -527,6 +606,7 @@ def find_candidates(query_time, cfg, verbose=False):
                 cands.append({
                     "delta_sec": delta, "dt": datetime.fromtimestamp(s["mtime"], tz),
                     "path": s["path"], "why": "chi khop mtime (khong thay trong log)",
+                    "file_log": os.path.basename(s["path"]),
                     "id": None, "url": None, "title": None, "log": None,
                     "source": "mtime",
                 })

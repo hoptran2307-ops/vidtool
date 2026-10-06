@@ -612,6 +612,14 @@ class App(tk.Tk):
         if not self._paths_alive(self._cfg_raw):
             if self.first_run_setup():
                 self._load_config()
+        # van chua co gi (nguoi dung bam Cancel) -> noi thang ra, dung de ho
+        # bam Tra roi nhan mot cau bao loi kho hieu
+        if not self._paths_alive(self._cfg_raw):
+            self._say("[!] Chua tro toi thu muc nao co that tren may nay.")
+            self._say("    Bam 'Chon lai thu muc' o goc duoi ben phai, "
+                      "chon thu muc cha chua video va log.")
+            self.status.configure(
+                text="Chua co du lieu - bam 'Chon lai thu muc' de chon thu muc goc.")
         self.after(80, self._drain)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -876,6 +884,9 @@ class App(tk.Tk):
         if self.first_run_setup(force=True):
             self._load_config()
             self._say("Da chon lai thu muc goc.")
+            self._say("   log  : %s" % self.logs.get())
+            self._say("   video: %s" % self.videos.get())
+            self.status.configure(text="San sang.")
 
     # -- config -------------------------------------------------------------
     def _load_config(self):
@@ -1279,6 +1290,28 @@ class App(tk.Tk):
         t = self.var_time.get().strip()
         if not t:
             raise SystemExit("Chua nhap gio dang video.")
+
+        # Chan tu dau khi duong dan chi dung tren giay. Khong chan thi nguoi dung
+        # chi nhan duoc "Khong co ung vien nao" - doc xong van khong biet la do
+        # nhap sai gio hay do chua tro dung thu muc.
+        logs = [p for p in vidtool.expand_paths(cfg.get("log_paths") or [])
+                if os.path.exists(p)]
+        vids = [p for p in vidtool.expand_paths(cfg.get("storage_dirs") or [])
+                if os.path.exists(p)]
+        if not logs or not vids:
+            thieu = []
+            if not logs:
+                thieu.append("thu muc log")
+            if not vids:
+                thieu.append("thu muc video")
+            raise SystemExit(
+                "Khong tim thay %s tren may nay.\n"
+                "   Duong dan dang dung: log=%s | video=%s\n"
+                "   -> Bam nut 'Chon lai thu muc' (goc duoi ben phai) roi chon "
+                "thu muc cha chua video va log."
+                % (" va ".join(thieu),
+                   cfg.get("log_paths"), cfg.get("storage_dirs")))
+
         qdt, cands, _ = vidtool.find_candidates(t, cfg, verbose=verbose)
         vidtool._print_candidates(qdt, cands, 20)
         self.show_hits(cands)

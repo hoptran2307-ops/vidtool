@@ -1426,11 +1426,14 @@ def main(startup_notes=None):
     """Diem vao. launcher.py goi ham nay va dua kem ghi chu luc khoi dong."""
     # Nhanh nay de ban .exe da dong goi truoc do van chay duoc tac vu hang dem
     # ngay sau khi cap nhat code, khong phai build lai.
-    if "--export" in sys.argv:
-        i = sys.argv.index("--export")
-        out = (sys.argv[i + 1] if len(sys.argv) > i + 1
-               else os.path.join(HERE, "vidtool_index.csv"))
-        sys.exit(vidtool.export_task(CONFIG_PATH, out, HERE))
+    for co, ham in (("--export", "export_task"), ("--setup", "setup_task")):
+        if co not in sys.argv:
+            continue
+        i = sys.argv.index(co)
+        mac_dinh = (os.path.join(HERE, "vidtool_index.csv")
+                    if co == "--export" else HERE)
+        tham_so = sys.argv[i + 1] if len(sys.argv) > i + 1 else mac_dinh
+        sys.exit(getattr(vidtool, ham)(CONFIG_PATH, tham_so, HERE))
     try:
         app = App()
         app.report_callback_exception = lambda e, v, t: _report("giao dien", (e, v, t))

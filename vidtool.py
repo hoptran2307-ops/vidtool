@@ -491,6 +491,62 @@ def export_index(cfg, out_path, verbose=False):
             "size": os.path.getsize(out_path)}
 
 
+LOG_DIR_NAME = "Logs"
+VIDEO_DIR_NAMES = ("Đã Đăng", "Đăng Lỗi", "5_da_dang")
+
+
+def make_config(root, output_dir, base=None):
+    """Dung config tro vao mot thu muc goc, bang mau ** quet moi do sau.
+
+    Giu nguyen kieu dau gach cua duong dan goc: duong dan mang Windows
+    (\\\\MAY\\Share) phai la dau gach nguoc, doi sang gach xuoi la hong.
+    """
+    r = str(root).rstrip("\\/")
+    sep = "\\" if ("\\" in r and not r.startswith("//")) else "/"
+
+    def duoi(ten):
+        return sep.join([r, "**", ten])
+
+    cfg = dict(base or DEFAULT_CONFIG)
+    cfg["log_paths"] = [duoi(LOG_DIR_NAME)]
+    cfg["storage_dirs"] = [duoi(n) for n in VIDEO_DIR_NAMES]
+    cfg["output_dir"] = output_dir
+    cfg.pop("__dt", None)
+    return cfg
+
+
+def setup_task(config_path, root, app_dir):
+    """Ghi config.json tro vao thu muc goc. Tra ve 0 neu xong, 1 neu khong thay gi.
+
+    Dung cho file cai dat tu dong: nguoi nhan khong phai tu di chon thu muc,
+    va khong phai biet may chu ten gi.
+    """
+    import traceback
+    try:
+        da_co = os.path.exists(config_path)
+        base = load_config(config_path) if da_co else None
+        cfg = make_config(root, os.path.join(app_dir, "output"), base)
+        n_log = len(expand_paths(cfg["log_paths"]))
+        n_vid = len(expand_paths(cfg["storage_dirs"]))
+        print("   thu muc log tim thay  : %d" % n_log)
+        print("   thu muc video tim thay: %d" % n_vid)
+
+        # Duong dan sai ma van ghi de thi pha hong cau hinh dang chay tot.
+        # Chi ghi khi tim thay thu gi, hoac khi may chua co config nao.
+        if not (n_log or n_vid) and da_co:
+            print("[!] Khong thay gi trong '%s' - giu nguyen cau hinh cu, "
+                  "khong ghi de." % root)
+            return 1
+
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+        print("Da ghi %s" % config_path)
+        return 0 if (n_log or n_vid) else 1
+    except Exception:
+        print(traceback.format_exc())
+        return 1
+
+
 def export_task(config_path, out_path, app_dir):
     """Xuat file tra cho tac vu chay ngam. Tra ve 0 neu xong, 1 neu loi.
 

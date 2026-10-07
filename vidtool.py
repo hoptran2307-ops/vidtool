@@ -23,6 +23,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 
 try:
@@ -245,22 +246,61 @@ def expand_paths(paths):
     return out
 
 
+_DATE_IN_NAME = re.compile(r"(20\d\d)[-_]?(\d{2})[-_]?(\d{2})")
+
+
+def _log_near(path, near, margin_days):
+    """File log nay co kha nang chua su kien quanh moc 'near' khong?
+
+    Khong loc thi moi lan tra phai doc het log cua ca nam de tim mot thoi diem -
+    doc qua mang thi cho met nghi. Hai dau hieu, deu an toan theo huong giu lai:
+      - ten file co ngay (2026-09-28.log) -> so thang voi moc
+      - khong co ngay -> xet mtime: file ngung duoc ghi TRUOC moc thi khong the
+        chua su kien xay ra o moc do
+    Nghi ngo thi giu lai, tha doc thua con hon bo sot.
+    """
+    if near is None:
+        return True
+    m = _DATE_IN_NAME.search(os.path.basename(path))
+    if m:
+        try:
+            d = datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            return abs((d.date() - near.date()).days) <= margin_days
+        except ValueError:
+            pass
+    try:
+        som_nhat = (near - timedelta(days=margin_days)).timestamp()
+        return os.path.getmtime(path) >= som_nhat
+    except OSError:
+        return True
+
+
 def _iter_log_files(paths, exts=(".csv", ".tsv", ".json", ".jsonl", ".ndjson",
-                                ".db", ".sqlite", ".sqlite3", ".txt", ".log")):
+                                ".db", ".sqlite", ".sqlite3", ".txt", ".log"),
+                    near=None, margin_days=1):
     for p in expand_paths(paths):
         if os.path.isfile(p):
-            yield p
+            if _log_near(p, near, margin_days):
+                yield p
         elif os.path.isdir(p):
             for root, _, files in os.walk(p):
                 for fn in sorted(files):
-                    if os.path.splitext(fn)[1].lower() in exts:
-                        yield os.path.join(root, fn)
+                    if os.path.splitext(fn)[1].lower() not in exts:
+                        continue
+                    full = os.path.join(root, fn)
+                    if _log_near(full, near, margin_days):
+                        yield full
 
 
-def read_log_records(cfg, verbose=False):
-    """Doc tat ca log -> list dict thuan (chua parse time)."""
+def read_log_records(cfg, verbose=False, near=None, margin_days=1):
+    """Doc log -> list dict thuan (chua parse time).
+
+    'near' la moc thoi gian dang tra: co moc thi chi doc nhung file log co kha
+    nang chua moc do, bo qua phan con lai. Khong co moc thi doc het nhu cu.
+    """
     records = []
-    for path in _iter_log_files(cfg["log_paths"]):
+    for path in _iter_log_files(cfg["log_paths"], near=near,
+                                margin_days=margin_days):
         ext = os.path.splitext(path)[1].lower()
         try:
             if ext in (".txt", ".log"):
@@ -393,8 +433,24 @@ def _read_sqlite(path):
 # TIM VIDEO
 # ----------------------------------------------------------------------------
 
-def index_storage(cfg):
-    """Quet thu muc luu tru -> list (path, mtime, size)."""
+_STORAGE_CACHE = {}        # {khoa: (luc_quet, danh_sach)}
+STORAGE_CACHE_SEC = 120    # giu ket qua quet bao lau truoc khi quet lai
+
+
+def index_storage(cfg, use_cache=True):
+    """Quet thu muc luu tru -> list (path, mtime, size).
+
+    Co nho dem: quet vai nghin file qua o dia mang mat hang chuc giay, ma mot
+    phien lam viec thuong tra lien tiep nhieu moc gio. Qua STORAGE_CACHE_SEC
+    thi quet lai de khong bo sot video vua cat xong.
+    """
+    khoa = tuple(cfg.get("storage_dirs") or ())
+    song = float(cfg.get("storage_cache_sec", STORAGE_CACHE_SEC))
+    if use_cache and song > 0:
+        cu = _STORAGE_CACHE.get(khoa)
+        if cu and (time.time() - cu[0]) < song:
+            return cu[1]
+
     exts = set(e.lower() for e in cfg["video_extensions"])
     files = []
     for d in expand_paths(cfg["storage_dirs"]):
@@ -412,6 +468,7 @@ def index_storage(cfg):
             out.append({"path": p, "mtime": st.st_mtime, "size": st.st_size})
         except OSError:
             continue
+    _STORAGE_CACHE[khoa] = (time.time(), out)
     return out
 
 
@@ -627,7 +684,16 @@ def find_candidates(query_time, cfg, verbose=False):
     if qdt is None:
         raise SystemExit("Khong doc duoc gio '%s'. Thu dang: 2026-09-02 21:35" % query_time)
 
-    records = read_log_records(cfg, verbose=verbose)
+    # Chi doc log quanh moc dang tra. Tra cuu mot thoi diem ma phai doc log ca
+    # nam thi rat lau, nhat la khi log nam tren o dia mang.
+    bien = max(1, int(cfg.get("log_window_days", 1)))
+    t0 = time.time()
+    records = read_log_records(cfg, verbose=verbose, near=qdt.replace(tzinfo=None),
+                               margin_days=bien)
+    if verbose:
+        print("  [log] %d ban ghi trong +/-%d ngay (%.1fs)"
+              % (len(records), bien, time.time() - t0), file=sys.stderr)
+
     storage = index_storage(cfg)
     if verbose:
         print("  [storage] %d file video" % len(storage), file=sys.stderr)
@@ -653,33 +719,48 @@ def find_candidates(query_time, cfg, verbose=False):
         return cache[sig]
 
     tol = timedelta(minutes=cfg["tolerance_minutes"])
-    cands = []
     fields = {"time": None, "file": None, "id": None, "url": None, "title": None}
 
-    for r in records:
-        f = fields_for(r)
-        if not f["time"]:
-            continue
-        fields = f
-        dt = parse_time(r.get(f["time"]), tz)
-        if dt is None:
-            continue
-        delta = abs((dt - qdt).total_seconds())
-        if delta <= tol.total_seconds():
-            r["__dt"] = dt
-            path, why = resolve_file(r, f, storage, cfg)
-            cands.append({
-                "delta_sec": delta, "dt": dt, "path": path, "why": why,
-                # ten/duong dan ghi trong log, giu lai de may khong co san video
-                # van biet do la video nao (che do chi tra)
-                "file_log": r.get(f["file"]) if f["file"] else None,
-                "id": r.get(f["id"]) if f["id"] else None,
-                "url": r.get(f["url"]) if f["url"] else None,
-                "title": r.get(f["title"]) if f["title"] else None,
-                "log": r.get("__source_log"), "source": "log",
-                "success": bool(r.get("success")),
-                "event": r.get("event"),
-            })
+    def quet(recs):
+        ra = []
+        cot = fields
+        for r in recs:
+            f = fields_for(r)
+            if not f["time"]:
+                continue
+            cot = f
+            dt = parse_time(r.get(f["time"]), tz)
+            if dt is None:
+                continue
+            delta = abs((dt - qdt).total_seconds())
+            if delta <= tol.total_seconds():
+                r["__dt"] = dt
+                path, why = resolve_file(r, f, storage, cfg)
+                ra.append({
+                    "delta_sec": delta, "dt": dt, "path": path, "why": why,
+                    # ten/duong dan ghi trong log, giu lai de may khong co san
+                    # video van biet do la video nao (che do chi tra)
+                    "file_log": r.get(f["file"]) if f["file"] else None,
+                    "id": r.get(f["id"]) if f["id"] else None,
+                    "url": r.get(f["url"]) if f["url"] else None,
+                    "title": r.get(f["title"]) if f["title"] else None,
+                    "log": r.get("__source_log"), "source": "log",
+                    "success": bool(r.get("success")),
+                    "event": r.get("event"),
+                })
+        return ra, cot
+
+    cands, fields = quet(records)
+
+    # Loc theo ngay ma khong ra gi -> doc lai toan bo log cho chac.
+    # Tang toc khong duoc phep lam mat ket qua: log ghi ngay sai dinh dang hay
+    # file bi sua ngay thang la co the bi loc nham.
+    if not cands:
+        if verbose:
+            print("  [log] khong thay trong khung +/-%d ngay, doc lai toan bo..."
+                  % bien, file=sys.stderr)
+        records = read_log_records(cfg, verbose=False)
+        cands, fields = quet(records)
 
     # fallback: khong co log khop -> quet mtime
     if not cands:

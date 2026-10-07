@@ -471,6 +471,54 @@ def chrome_profiles():
 # Danh sach duong dan (listbox + nut)
 # ---------------------------------------------------------------------------
 
+class ThanhNut(ttk.Frame):
+    """Hang nut tu xuong dong khi cua so hep lai.
+
+    Tkinter khong co kieu xep "tu xuong dong". Dung pack(side='left') thi nut
+    nao khong con cho se bi day ra ngoai va mat hut - thu nho cua so la khong
+    bam duoc 'Luu cau hinh' nua ma cung khong biet no di dau.
+
+    Nen tu tinh: moi lan cua so doi be ngang thi xep lai cac nut thanh nhieu
+    hang vua du chua.
+    """
+
+    def __init__(self, master, khoang=6, **kw):
+        super().__init__(master, **kw)
+        self.khoang = khoang
+        self.nut = []
+        self._rong_cu = -1
+        self.bind("<Configure>", self._xep_lai)
+
+    def them(self, w):
+        """Dua mot nut vao thanh. Tra ve chinh nut do cho tien gan bien."""
+        self.nut.append(w)
+        self._rong_cu = -1          # co nut moi -> buoc xep lai
+        self.after_idle(self._xep_lai)
+        return w
+
+    def _xep_lai(self, _evt=None):
+        rong = self.winfo_width()
+        if rong <= 1 or not self.nut:
+            return
+        # Chi xep lai khi be ngang doi dang ke. Khong chan thi moi su kien
+        # Configure lai goi grid, ma grid lai sinh Configure -> lap vo tan.
+        if abs(rong - self._rong_cu) < 8:
+            return
+        self._rong_cu = rong
+        hang = cot = 0
+        da_dung = 0
+        for w in self.nut:
+            can = w.winfo_reqwidth() + self.khoang
+            if cot and da_dung + can > rong:
+                hang += 1
+                cot = 0
+                da_dung = 0
+            w.grid(row=hang, column=cot, sticky="w",
+                   padx=(0, self.khoang), pady=(0, self.khoang))
+            da_dung += can
+            cot += 1
+
+
 class PathList(ttk.LabelFrame):
     def __init__(self, master, title, pick_files=False, height=6):
         super().__init__(master, text=title, padding=8)
@@ -718,36 +766,37 @@ class App(tk.Tk):
         ttk.Label(r6, text="(muc 'Tai noi dung nghe nhin len' lech so voi nut '+')",
                   foreground="#666").pack(side="left", padx=8)
 
-        bar = ttk.Frame(self)
+        bar = ThanhNut(self)
         bar.pack(fill="x", padx=10, pady=10)
         # CHI TRA VIDEO dung truoc va la nut noi bat: do la viec hay lam nhat,
         # va nhanh hon han vi khong phai tai ca video ve de giai ma.
-        self.btn_find = tk.Button(bar, text="CHI TRA VIDEO", bg=BTN_PRIMARY,
-                                  font=("Segoe UI", 10, "bold"), width=20,
-                                  height=2, relief="groove", command=self.do_find)
-        self.btn_find.pack(side="left")
-        self.btn_run = tk.Button(bar, text="TRA + PHAN TICH", width=18, height=2,
-                                 relief="groove", command=self.do_run)
-        self.btn_run.pack(side="left", padx=6)
-        self.btn_an = tk.Button(bar, text="PHAN TICH FILE...", width=18, height=2,
-                                relief="groove", command=self.do_analyze_file)
-        self.btn_an.pack(side="left", padx=6)
-        self.btn_stop = tk.Button(bar, text="DUNG", bg=BTN_DANGER, width=10, height=2,
-                                  relief="groove", state="disabled", command=self.do_stop)
-        self.btn_stop.pack(side="left", padx=6)
-        self.btn_flow = tk.Button(bar, text="MO FLOW + THEM ANH", bg="#e2d6ff",
-                                  width=20, height=2, relief="groove",
-                                  font=("Segoe UI", 9, "bold"), command=self.do_flow)
-        self.btn_flow.pack(side="left", padx=6)
-        tk.Button(bar, text="Mo ket qua", width=12, height=2, relief="groove",
-                  command=self.open_out).pack(side="right")
-        tk.Button(bar, text="XUAT FILE TRA", bg="#d9f2d9", width=14, height=2,
-                  relief="groove", font=("Segoe UI", 9, "bold"),
-                  command=self.do_export_index).pack(side="left", padx=6)
-        tk.Button(bar, text="Luu cau hinh", width=12, height=2, relief="groove",
-                  command=self.save_config).pack(side="right", padx=6)
-        tk.Button(bar, text="Chon lai thu muc", width=15, height=2, relief="groove",
-                  command=self.redo_setup).pack(side="right")
+        self.btn_find = bar.them(
+            tk.Button(bar, text="CHI TRA VIDEO", bg=BTN_PRIMARY,
+                      font=("Segoe UI", 10, "bold"), width=20,
+                      height=2, relief="groove", command=self.do_find))
+        self.btn_run = bar.them(
+            tk.Button(bar, text="TRA + PHAN TICH", width=18, height=2,
+                      relief="groove", command=self.do_run))
+        self.btn_an = bar.them(
+            tk.Button(bar, text="PHAN TICH FILE...", width=18, height=2,
+                      relief="groove", command=self.do_analyze_file))
+        self.btn_stop = bar.them(
+            tk.Button(bar, text="DUNG", bg=BTN_DANGER, width=10, height=2,
+                      relief="groove", state="disabled", command=self.do_stop))
+        self.btn_flow = bar.them(
+            tk.Button(bar, text="MO FLOW + THEM ANH", bg="#e2d6ff",
+                      width=20, height=2, relief="groove",
+                      font=("Segoe UI", 9, "bold"), command=self.do_flow))
+        bar.them(tk.Button(bar, text="XUAT FILE TRA", bg="#d9f2d9", width=14,
+                           height=2, relief="groove",
+                           font=("Segoe UI", 9, "bold"),
+                           command=self.do_export_index))
+        bar.them(tk.Button(bar, text="Chon lai thu muc", width=15, height=2,
+                           relief="groove", command=self.redo_setup))
+        bar.them(tk.Button(bar, text="Luu cau hinh", width=12, height=2,
+                           relief="groove", command=self.save_config))
+        bar.them(tk.Button(bar, text="Mo ket qua", width=12, height=2,
+                           relief="groove", command=self.open_out))
 
         self.status = ttk.Label(self, text="San sang.", anchor="w")
         self.status.pack(side="bottom", fill="x", padx=12, pady=6)

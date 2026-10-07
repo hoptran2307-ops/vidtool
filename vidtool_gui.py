@@ -857,7 +857,9 @@ class App(tk.Tk):
                 continue
             ten = os.path.basename(tho)
             if c.get("path"):
-                noi, co_file = c["path"], True
+                # hien dang gach nguoc cho dung kieu Windows, de nguoi dung copy
+                # duong dan nay dan thang vao Explorer cung chay
+                noi, co_file = os.path.normpath(c["path"]), True
             elif "\\" in tho or "/" in tho:
                 # file tra ghi ca duong dan tren may nguoi gui
                 noi, co_file = "[tren may nguoi gui] " + tho, False
@@ -895,10 +897,19 @@ class App(tk.Tk):
         p = self._selected_hit()
         if not p:
             return
-        if os.path.exists(p):
-            self._open(p)
-        else:
-            messagebox.showwarning("Khong con file", "Khong thay file:\n%s" % p)
+        if not os.path.exists(p):
+            messagebox.showwarning(
+                "Khong mo duoc",
+                "Khong thay file:\n%s\n\nMay chu co dang bat khong? "
+                "O cung co dang cam khong?" % p)
+            return
+        ok, err = self._open(p)
+        if not ok:
+            messagebox.showerror(
+                "Khong mo duoc video",
+                "Windows tu choi mo file:\n%s\n\n%s\n\n"
+                "Thu bam chuot phai de mo thu muc roi bam dup file trong do."
+                % (os.path.normpath(p), err))
 
     def _open_hit_folder(self, evt=None):
         if evt is not None:
@@ -909,8 +920,13 @@ class App(tk.Tk):
         if not p:
             return
         folder = os.path.dirname(p)
-        if os.path.isdir(folder):
-            self._open(folder)
+        if not os.path.isdir(folder):
+            messagebox.showwarning("Khong mo duoc",
+                                   "Khong vao duoc thu muc:\n%s" % folder)
+            return
+        ok, err = self._open(folder)
+        if not ok:
+            messagebox.showerror("Khong mo duoc thu muc", err)
 
     def redo_setup(self):
         """Chon lai thu muc goc - dung khi doi may hoac o cung doi chu cai."""
@@ -1144,12 +1160,25 @@ class App(tk.Tk):
 
     @staticmethod
     def _open(path):
+        """Mo file/thu muc bang ung dung mac dinh. Tra ve (xong, loi).
+
+        Phai doi dau gach xuoi thanh gach nguoc truoc da: hop thoai chon thu muc
+        cua tkinter tra ve dang "//MAY/Share/...", ma ShellExecute (os.startfile)
+        khong nuot duong dan mang kieu do. Truoc day loi bi nuot im lang nen bam
+        dup khong mo duoc video ma cung chang bao gi.
+        """
+        p = os.path.normpath(path)
         try:
-            os.startfile(path)  # Windows
+            os.startfile(p)                      # Windows
+            return True, ""
         except AttributeError:
-            subprocess.Popen(["xdg-open", path])
-        except Exception:
-            pass
+            try:
+                subprocess.Popen(["xdg-open", p])
+                return True, ""
+            except Exception as e:
+                return False, str(e)
+        except Exception as e:
+            return False, str(e)
 
     # -- Flow ---------------------------------------------------------------
     def _shots_dir(self):

@@ -720,13 +720,15 @@ class App(tk.Tk):
 
         bar = ttk.Frame(self)
         bar.pack(fill="x", padx=10, pady=10)
-        self.btn_run = tk.Button(bar, text="TRA + PHAN TICH", bg=BTN_PRIMARY,
-                                 font=("Segoe UI", 10, "bold"), width=20, height=2,
+        # CHI TRA VIDEO dung truoc va la nut noi bat: do la viec hay lam nhat,
+        # va nhanh hon han vi khong phai tai ca video ve de giai ma.
+        self.btn_find = tk.Button(bar, text="CHI TRA VIDEO", bg=BTN_PRIMARY,
+                                  font=("Segoe UI", 10, "bold"), width=20,
+                                  height=2, relief="groove", command=self.do_find)
+        self.btn_find.pack(side="left")
+        self.btn_run = tk.Button(bar, text="TRA + PHAN TICH", width=18, height=2,
                                  relief="groove", command=self.do_run)
-        self.btn_run.pack(side="left")
-        self.btn_find = tk.Button(bar, text="CHI TRA VIDEO", width=18, height=2,
-                                  relief="groove", command=self.do_find)
-        self.btn_find.pack(side="left", padx=6)
+        self.btn_run.pack(side="left", padx=6)
         self.btn_an = tk.Button(bar, text="PHAN TICH FILE...", width=18, height=2,
                                 relief="groove", command=self.do_analyze_file)
         self.btn_an.pack(side="left", padx=6)
